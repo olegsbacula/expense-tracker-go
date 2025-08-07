@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"expense-tracker-go/model"
 	"log"
+	"net/url"
 	"strconv"
 
 	"azugo.io/azugo"
@@ -107,30 +108,27 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		ctx.JSON(results)
 	})
 
-	app.Delete("/deleteExpense", func(ctx *azugo.Context) {
+	app.Delete("/deleteExpense/{id}", func(ctx *azugo.Context) {
 		const query = `
 			DELETE FROM expenses
          	WHERE id = $1;
 		`
-		var resp model.Request
-		err := json.Unmarshal(ctx.Body.Bytes(), &resp)
+		res,err :=url.QueryUnescape(ctx.Params.String("id"))
+		if len(res) == 0 || err != nil {
+			ctx.NotFound()
 
-		if err != nil {
-			ctx.StatusCode(fasthttp.StatusBadRequest)
-			ctx.ContentType("text/plain")
-			ctx.Context().SetBodyString("Failed to unmarshal json.")
 			return
 		}
-		
-		res, err := db.Exec(query, resp.ID)
-			if err != nil {
+
+		resp, err := db.Exec(query, res)
+		if err != nil {
 			log.Printf("Failed to delete from database: %v", err)
 			ctx.StatusCode(fasthttp.StatusInternalServerError)
 			ctx.ContentType("text/plain")
 			ctx.Context().SetBodyString("Failed to delete from database")
 			return
 		}
-		n, err := res.RowsAffected()
+		n, err := resp.RowsAffected()
 		if err != nil {
 			log.Printf("cannot get RowsAffected: %v", err)
 		}
@@ -143,6 +141,53 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		ctx.StatusCode(fasthttp.StatusOK)
 		ctx.ContentType("text/plain")
 		ctx.Context().SetBodyString("Worked just fine.")
+	})
+
+	app.Patch("/patch", func(ctx *azugo.Context){
+
+		var request model.Request
+
+		err := json.Unmarshal(ctx.Body.Bytes(), &request)
+
+		if err != nil {
+			ctx.StatusCode(fasthttp.StatusBadRequest)
+			ctx.ContentType("text/plain")
+			ctx.Context().SetBodyString("Failed to unmarshal json.")
+			return
+		}
+
+		const query = `
+		UPDATE expenses
+        SET
+            amount       = $2,
+            description  = $3,
+            expense_type = $4
+        WHERE id = $1;
+		`
+		resp, err := db.Exec(query,request.ID, request.Expenses,request.Description,request.Type)
+		if err != nil {
+			log.Printf("Failed to delete from database: %v", err)
+			ctx.StatusCode(fasthttp.StatusInternalServerError)
+			ctx.ContentType("text/plain")
+			ctx.Context().SetBodyString("Failed to update database")
+			return
+		}
+
+		n, err := resp.RowsAffected()
+
+		if err != nil {
+			log.Printf("cannot get RowsAffected: %v", err)
+		}
+		if n == 0 {
+			ctx.StatusCode(fasthttp.StatusNotFound)
+			ctx.Context().SetBodyString("Expense not found")
+			return
+		}
+
+		ctx.StatusCode(fasthttp.StatusOK)
+		ctx.ContentType("text/plain")
+		ctx.Context().SetBodyString("Patch worked just fine.")
+
 	})
 
 	corsOpts := app.RouterOptions().CORS
