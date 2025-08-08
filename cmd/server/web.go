@@ -58,7 +58,7 @@ func runWeb(cmd *cobra.Command, args []string) error {
 			VALUES($1,$2,$3)
 		`
 
-		expenses, err := strconv.Atoi(request.Expenses)
+		expenses, err := strconv.ParseFloat(request.Expenses, 64)
 
 		if err != nil {
 			ctx.StatusCode(fasthttp.StatusInternalServerError)
@@ -113,7 +113,7 @@ func runWeb(cmd *cobra.Command, args []string) error {
 			DELETE FROM expenses
          	WHERE id = $1;
 		`
-		res,err :=url.QueryUnescape(ctx.Params.String("id"))
+		res, err := url.QueryUnescape(ctx.Params.String("id"))
 		if len(res) == 0 || err != nil {
 			ctx.NotFound()
 
@@ -143,7 +143,29 @@ func runWeb(cmd *cobra.Command, args []string) error {
 		ctx.Context().SetBodyString("Worked just fine.")
 	})
 
-	app.Patch("/patch", func(ctx *azugo.Context){
+	app.Delete("/deleteAllExpense", func(ctx *azugo.Context) {
+		const query = `
+				TRUNCATE TABLE expenses;
+
+				ALTER SEQUENCE expenses_id_seq
+				RESTART WITH 1;
+		`
+
+		_, err := db.Exec(query)
+		if err != nil {
+			log.Printf("Failed to delete from database: %v", err)
+			ctx.StatusCode(fasthttp.StatusInternalServerError)
+			ctx.ContentType("text/plain")
+			ctx.Context().SetBodyString("Failed to delete all expenses from database")
+			return
+		}
+
+		ctx.StatusCode(fasthttp.StatusOK)
+		ctx.ContentType("text/plain")
+		ctx.Context().SetBodyString("Worked just fine.")
+	})
+
+	app.Patch("/patch", func(ctx *azugo.Context) {
 
 		var request model.Request
 
@@ -164,7 +186,7 @@ func runWeb(cmd *cobra.Command, args []string) error {
             expense_type = $4
         WHERE id = $1;
 		`
-		resp, err := db.Exec(query,request.ID, request.Expenses,request.Description,request.Type)
+		resp, err := db.Exec(query, request.ID, request.Expenses, request.Description, request.Type)
 		if err != nil {
 			log.Printf("Failed to delete from database: %v", err)
 			ctx.StatusCode(fasthttp.StatusInternalServerError)
